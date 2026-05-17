@@ -23,4 +23,9 @@ class PrefsService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('child_id');
   }
+
+  static Future<void> clearParentData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('paired_child_id');
+  }
 }

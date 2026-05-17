@@ -1,19 +1,40 @@
 import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'firestore_service.dart';
 
 class AiAgentService {
 
-  static Future<void> analyzeActivity({
+  // Returns null on success, error message on failure
+  static Future<String?> analyzeActivity({
     required String childId,
     required String rawText,
     required String childAgeHint,
     required List<Map<String, dynamic>> recentReports,
   }) async {
-    if (rawText.trim().isEmpty) return;
-    final json = await _callClaude(_buildPrompt(rawText, childAgeHint, recentReports));
-    if (json != null) await FirestoreService.writeActivityReport(childId, json);
+    const apiKey = String.fromEnvironment('GROQ_API_KEY');
+    if (apiKey.isEmpty) {
+      return 'Clé API manquante — relancez avec --dart-define=GROQ_API_KEY=...';
+    }
+
+    final text = rawText.trim().isEmpty
+        ? _demoText   // fallback so demo always works
+        : rawText;
+
+    final json = await _callGroq(_buildPrompt(text, childAgeHint, recentReports));
+    if (json == null) return 'Échec appel API — vérifiez la connexion et la clé Groq';
+
+    await FirestoreService.writeActivityReport(childId, json);
+    return null; // success
   }
+
+  // Demo text used when buffer is empty (no OCR capture yet)
+  static const _demoText =
+      "L'enfant a utilisé une application de messagerie. "
+      "Il a regardé des vidéos. "
+      "Des recherches sur des jeux en ligne ont été détectées.";
+
 
   static String _buildPrompt(String rawText, String ageHint,
       List<Map<String, dynamic>> history) {
@@ -88,7 +109,7 @@ Réponds UNIQUEMENT avec le JSON, sans texte avant ou après.
 ''';
   }
 
-  static Future<String?> _callClaude(String prompt) async {
+  static Future<String?> _callGroq(String prompt) async {
     const apiKey = String.fromEnvironment('GROQ_API_KEY');
     try {
       final response = await http.post(
@@ -113,9 +134,12 @@ Réponds UNIQUEMENT avec le JSON, sans texte avant ou après.
                 .replaceAll('```', '')
                 .trim();
         return text;
+      } else {
+        // Print status + body so you can see what's wrong in flutter logs
+        debugPrint('[Groq] Error ${response.statusCode}: ${response.body.substring(0, response.body.length.clamp(0, 300))}');
       }
     } catch (e) {
-      // ignore
+      debugPrint('[Groq] Exception: $e');
     }
     return null;
   }

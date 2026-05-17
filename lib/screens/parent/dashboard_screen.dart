@@ -4,6 +4,7 @@ import '../../services/firestore_service.dart';
 import '../../services/prefs_service.dart';
 import '../../widgets/alert_card.dart';
 import '../../widgets/report_card.dart';
+import 'pairing_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -24,6 +25,41 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
 
   @override
   void dispose() { _tab.dispose(); super.dispose(); }
+
+  Future<void> _logout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Column(children: [
+          Icon(Icons.logout_rounded, color: Color(0xFF6C63D5), size: 36),
+          SizedBox(height: 8),
+          Text('Déconnexion', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w700)),
+          Text('تسجيل الخروج', textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: Colors.grey)),
+        ]),
+        content: const Text(
+          'Vous serez redirigé vers l\'écran de couplage.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 13, color: Colors.grey),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF6C63D5),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Confirmer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await PrefsService.clearParentData();
+    if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const PairingScreen()));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -52,6 +88,12 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                     Text('MotherEye', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
                     Text('عين الأم — Tableau de bord', style: TextStyle(color: Colors.white70, fontSize: 12)),
                   ]),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: _logout,
+                    icon: const Icon(Icons.logout_rounded, color: Colors.white),
+                    tooltip: 'Déconnexion',
+                  ),
                 ]),
               ),
               const SizedBox(height: 16),

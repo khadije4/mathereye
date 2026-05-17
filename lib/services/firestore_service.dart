@@ -25,7 +25,16 @@ class FirestoreService {
 
   static Future<void> writeActivityReport(String childId, String analysisJson) async {
     Map<String, dynamic> analysis = {};
-    try { analysis = jsonDecode(analysisJson) as Map<String, dynamic>; } catch (_) { return; }
+    try {
+      analysis = jsonDecode(analysisJson) as Map<String, dynamic>;
+    } catch (e) {
+      // Try to extract JSON block from response if wrapped in markdown
+      final match = RegExp(r'\{[\s\S]*\}').firstMatch(analysisJson);
+      if (match == null) return;
+      try {
+        analysis = jsonDecode(match.group(0)!) as Map<String, dynamic>;
+      } catch (_) { return; }
+    }
 
     await _db.collection('children').doc(childId).collection('reports').add({
       'analysis': analysis,

@@ -2,6 +2,7 @@ package com.mothereye.app
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.util.Log
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -20,9 +21,9 @@ class DetectionEngine(private val context: Context) {
     private var tflite: Interpreter? = null
     private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     private val keywordMatcher = KeywordMatcher()
-    private val NSFW_THRESHOLD = 0.75f
+    private val NSFW_THRESHOLD = 0.60f
     private var lastAlertTime  = 0L
-    private val COOLDOWN_MS    = 5 * 60 * 1000L
+    private val COOLDOWN_MS    = 30 * 1000L  // 30 seconds for testing
 
     init { loadModel() }
 
@@ -32,27 +33,44 @@ class DetectionEngine(private val context: Context) {
             val buffer = FileInputStream(afd.fileDescriptor).channel
                 .map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.declaredLength)
             tflite = Interpreter(buffer)
-        } catch (e: Exception) { e.printStackTrace() }
+            Log.d("MotherEye", "NSFW model loaded OK")
+        } catch (e: Exception) {
+            Log.e("MotherEye", "NSFW model FAILED to load: ${e.message}")
+        }
     }
 
-    fun analyze(bitmap: Bitmap): AlertResult? {
+    fun analyze(bitmapFull: Bitmap): AlertResult? {
         val now = System.currentTimeMillis()
-        if (now - lastAlertTime < COOLDOWN_MS) return null
+        val remaining = COOLDOWN_MS - (now - lastAlertTime)
+        if (remaining > 0) {
+            Log.d("MotherEye", "Cooldown active — ${remaining / 1000}s remaining")
+            return null
+        }
 
-        val nsfwScore = runNsfwInference(bitmap)
+        // Scale down only for TFLite — OCR keeps full resolution
+        val bitmap224 = Bitmap.createScaledBitmap(bitmapFull, 224, 224, false)
+        val nsfwScore = runNsfwInference(bitmap224)
+        bitmap224.recycle()
+        Log.d("MotherEye", "NSFW score: ${"%.3f".format(nsfwScore)} (threshold: $NSFW_THRESHOLD)")
         if (nsfwScore > NSFW_THRESHOLD) {
             lastAlertTime = now
+            Log.d("MotherEye", "NSFW alert triggered!")
             return AlertResult("nsfw_image", nsfwScore, null)
         }
 
-        val text = extractTextBlocking(bitmap)
+        // OCR at full resolution for readable text
+        val text = extractTextBlocking(bitmapFull)
         if (text.isNotEmpty()) {
+            Log.d("MotherEye", "OCR (${text.length} chars): ${text.take(120)}")
             ActivityBuffer.add(text)
             val match = keywordMatcher.findDangerPhrase(text)
             if (match != null) {
                 lastAlertTime = now
+                Log.d("MotherEye", "Keyword alert: $match")
                 return AlertResult("danger_text", 1.0f, match)
             }
+        } else {
+            Log.d("MotherEye", "OCR: no text detected")
         }
         return null
     }

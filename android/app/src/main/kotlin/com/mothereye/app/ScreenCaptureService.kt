@@ -87,10 +87,9 @@ class ScreenCaptureService : Service() {
             try {
                 val bitmap = imageToBitmap(image!!)
                 image.close()
-                val scaled = Bitmap.createScaledBitmap(bitmap, 224, 224, false)
+                // Pass full-resolution bitmap — DetectionEngine scales internally for TFLite
+                val result = detectionEngine?.analyze(bitmap)
                 bitmap.recycle()
-                val result = detectionEngine?.analyze(scaled)
-                scaled.recycle()
                 result?.let { alert ->
                     handler?.post {
                         MainActivity.alertSink?.success(mapOf(

@@ -27,16 +27,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     super.initState();
     _pulseCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat(reverse: true);
     _pulseAnim = Tween(begin: 1.0, end: 1.12).animate(CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
-    PrefsService.getChildId().then((id) => setState(() => _childId = id));
-    _events.receiveBroadcastStream().listen((event) async {
-      final map = Map<String, dynamic>.from(event as Map);
-      final type = map['type'] as String;
-      final matched = map['matchedText'] as String? ?? '';
-      setState(() {
-        _recentAlerts.insert(0, {'type': type, 'text': matched, 'time': DateTime.now()});
-        if (_recentAlerts.length > 3) _recentAlerts.removeLast();
+    // Load childId first, then start listening so writes never miss it
+    PrefsService.getChildId().then((id) {
+      setState(() => _childId = id);
+      _events.receiveBroadcastStream().listen((event) async {
+        final map = Map<String, dynamic>.from(event as Map);
+        final type = map['type'] as String;
+        final matched = map['matchedText'] as String? ?? '';
+        setState(() {
+          _recentAlerts.insert(0, {'type': type, 'text': matched, 'time': DateTime.now()});
+          if (_recentAlerts.length > 3) _recentAlerts.removeLast();
+        });
+        // id is captured from closure — always valid
+        if (id != null) await FirestoreService.writeAlert(id, type, matched);
       });
-      if (_childId != null) await FirestoreService.writeAlert(_childId!, type, matched);
     });
   }
 
@@ -46,26 +50,41 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Future<void> _toggle(bool val) async {
     if (val) {
       final ok = await _method.invokeMethod<bool>('requestScreenCapture') ?? false;
-      if (ok) setState(() => _active = true);
+      if (ok) {
+        setState(() => _active = true);
+        await _method.invokeMethod('setProtectionActive', {'active': true});
+      }
     } else {
       await _method.invokeMethod('stopDetection');
+      await _method.invokeMethod('setProtectionActive', {'active': false});
       setState(() => _active = false);
     }
   }
 
   Future<void> _analyze() async {
     final messenger = ScaffoldMessenger.of(context);
-    setState(() => _analyzing = true);
-    final raw = await _method.invokeMethod<String>('flushActivityBuffer') ?? '';
-    if (raw.isEmpty || _childId == null) {
-      setState(() => _analyzing = false);
-      messenger.showSnackBar(const SnackBar(content: Text('Pas encore assez de données')));
+    if (_childId == null) {
+      messenger.showSnackBar(const SnackBar(content: Text('Erreur: ID enfant manquant')));
       return;
     }
+    setState(() => _analyzing = true);
+    final raw = await _method.invokeMethod<String>('flushActivityBuffer') ?? '';
     final recent = await FirestoreService.getRecentReports(_childId!, limit: 5);
-    await AiAgentService.analyzeActivity(childId: _childId!, rawText: raw, childAgeHint: '8-16 ans', recentReports: recent);
+    final error = await AiAgentService.analyzeActivity(
+      childId: _childId!,
+      rawText: raw,
+      childAgeHint: '8-16 ans',
+      recentReports: recent,
+    );
     setState(() => _analyzing = false);
-    if (mounted) {
+    if (!mounted) return;
+    if (error != null) {
+      messenger.showSnackBar(SnackBar(
+        content: Text(error),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 5),
+      ));
+    } else {
       messenger.showSnackBar(const SnackBar(
         content: Row(children: [
           Icon(Icons.check_circle, color: Colors.white, size: 18),
@@ -73,6 +92,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           Text('Rapport envoyé aux parents'),
         ]),
         backgroundColor: Color(0xFF6C63D5),
+      ));
+    }
+  }
+
+  Future<void> _sendTestAlert() async {
+    if (_childId == null) return;
+    await FirestoreService.writeAlert(_childId!, 'danger_text', 'TEST — send nudes');
+    setState(() {
+      _recentAlerts.insert(0, {'type': 'danger_text', 'text': 'TEST — send nudes', 'time': DateTime.now()});
+      if (_recentAlerts.length > 3) _recentAlerts.removeLast();
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Alerte test envoyée — check parent app'),
+        backgroundColor: Colors.orange,
       ));
     }
   }
@@ -147,7 +181,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_active,
+    onPopInvokedWithResult: (didPop, _) {
+      if (!didPop && _active) _deactivate();
+    },
+    child: Scaffold(
     backgroundColor: const Color(0xFFF5F4FF),
     body: SafeArea(
       child: Column(children: [
@@ -269,11 +308,28 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
               ),
             ),
+            const SizedBox(height: 10),
+            // Test button — verify full pipeline works
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.bug_report_outlined, size: 18),
+                label: const Text('Envoyer alerte test — إرسال تنبيه تجريبي'),
+                onPressed: _childId != null ? _sendTestAlert : null,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.orange,
+                  side: const BorderSide(color: Colors.orange),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+              ),
+            ),
           ]),
         )),
       ]),
     ),
-  );
+  ),   // closes Scaffold
+);     // closes PopScope
 }
 
 class _LocalAlertTile extends StatelessWidget {
