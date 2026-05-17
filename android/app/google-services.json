@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "533489489121",
+    "project_id": "mathereye",
+    "storage_bucket": "mathereye.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:533489489121:android:43dc4b2d0dbdc947ced3a0",
+        "android_client_info": {
+          "package_name": "com.mothereye.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBeRE8B36hRW6VT8w8q1zph1ChVRcBEqB4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
